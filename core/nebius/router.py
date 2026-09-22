@@ -196,7 +196,7 @@ class NanoRouter:
     async def route(self, bundle: ContextBundle) -> Optional[RouterOutput]:
         """
         Main entry point. Returns RouterOutput or None if context is irrelevant.
-        Compat path: triage -> Nano direct answer or Ultra (no Tavily injection;
+Compat path: triage -> Nano direct answer or Ultra (no Tavily injection;
         the server pipeline uses triage()/build_ultra_prompt() for that).
         """
         t0 = time.perf_counter()
