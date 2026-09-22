@@ -1,0 +1,145 @@
+/* app/src/styles/theme.css
+   SYNAPSE — Strict NVIDIA color system
+   All components must use these CSS variables. No hardcoded colors allowed.
+*/
+
+:root {
+  /* ── Core palette ─────────────────────────────────────────────── */
+  --color-canvas:      #000000;   /* Main window / root background     */
+  --color-panel:       #1A1A1A;   /* Cards, containers, sidebars       */
+  --color-border:      #2A2A2A;   /* Component outlines, dividers      */
+  --color-edge:        #3A3A3A;   /* Highlight bevels (top-left edge)  */
+  --color-accent:      #76B900;   /* NVIDIA green — signal color ONLY  */
+  --color-accent-dim:  rgba(118, 185, 0, 0.15);  /* Ambient glow      */
+  --color-accent-glow: rgba(118, 185, 0, 0.35);  /* Strong hover glow */
+
+  /* ── Text ─────────────────────────────────────────────────────── */
+  --color-text-hi:     #FFFFFF;   /* Headlines, CTA labels, diffs      */
+  --color-text-mid:    #AAAAAA;   /* Body, descriptions, metadata      */
+  --color-text-lo:     #555555;   /* Timestamps, tertiary info         */
+
+  /* ── Code ─────────────────────────────────────────────────────── */
+  --color-code-bg:     #0D0D0D;   /* Code block background             */
+  --color-diff-add:    rgba(118, 185, 0, 0.10);   /* Added line bg    */
+  --color-diff-del:    rgba(170, 170, 170, 0.05); /* Removed line bg  */
+
+  /* ── Typography ───────────────────────────────────────────────── */
+  --font-sans:  'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono:  'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+
+  /* ── Spacing (8px grid) ───────────────────────────────────────── */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  /* ── Shape ────────────────────────────────────────────────────── */
+  --radius-sm: 2px;
+  --radius:    4px;   /* Standard — angular, hardware feel             */
+
+  /* ── Motion ───────────────────────────────────────────────────── */
+  --ease-fast: 0.12s ease;
+  --ease-std:  0.20s ease;
+}
+
+/* ── Global resets ─────────────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  background: var(--color-canvas);
+  color: var(--color-text-mid);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Scrollbars ────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: var(--color-panel); }
+::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-edge); }
+
+/* ── Data pulse animation (loading state) ─────────────────────────── */
+@keyframes dataPulse {
+  0%   { border-color: var(--color-border); box-shadow: none; }
+  50%  { border-color: var(--color-accent); box-shadow: 0 0 12px var(--color-accent-dim); }
+  100% { border-color: var(--color-border); box-shadow: none; }
+}
+
+.loading {
+  animation: dataPulse 1.2s ease-in-out infinite;
+}
+
+/* ── Hardware card ─────────────────────────────────────────────────── */
+.hw-card {
+  background: linear-gradient(145deg, var(--color-edge) 0%, var(--color-panel) 100%);
+  border-top:    1px solid var(--color-edge);
+  border-left:   1px solid var(--color-edge);
+  border-bottom: 1px solid var(--color-border);
+  border-right:  1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.hw-card:hover,
+.hw-card.active {
+  box-shadow: 0 4px 24px var(--color-accent-dim);
+}
+
+.hw-card.active::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: var(--color-accent);
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────── */
+.btn-primary {
+  background: var(--color-accent);
+  color: var(--color-text-hi);
+  font-weight: 700;
+  font-size: 13px;
+  padding: 10px 24px;
+  border-radius: var(--radius);
+  border: none;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all var(--ease-fast);
+}
+
+.btn-primary:hover {
+  background: radial-gradient(circle at center, #8ED000 0%, var(--color-accent) 70%);
+  box-shadow: 0 0 24px var(--color-accent-glow);
+  transform: translateY(-1px);
+}
+
+.btn-primary:active {
+  transform: translateY(0);
+  box-shadow: 0 0 12px var(--color-accent-dim);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--color-text-mid);
+  font-size: 12px;
+  padding: 8px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all var(--ease-fast);
+}
+
+.btn-ghost:hover {
+  color: var(--color-text-hi);
+  border-color: var(--color-edge);
+}

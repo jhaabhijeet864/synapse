@@ -1,0 +1,48 @@
+# Synapse .gitignore
+
+# ── Secrets & environment ─────────────────────────────────────────────
+.env
+*.pem
+*.key
+*.p12
+
+# ── Python ───────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ── Node / Frontend ───────────────────────────────────────────────────
+node_modules/
+app/dist/
+app/.next/
+.turbo/
+
+# ── Rust / Tauri ─────────────────────────────────────────────────────
+app/src-tauri/target/
+Cargo.lock
+
+# ── OS & editors ─────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/settings.json
+*.suo
+*.user
+
+# ── Synapse runtime data ──────────────────────────────────────────────
+*.bak.*            # File patcher backups
+.synapse/logs/
+~/synapse_notes/   # Not in repo — user's local notes
+
+# ── Test artifacts ────────────────────────────────────────────────────
+.coverage
+htmlcov/

@@ -1,0 +1,43 @@
+# Synapse — Python daemon dependencies
+# Install with: pip install -r core/requirements.txt
+
+# ── Web framework & server ───────────────────────────────────────────
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+httpx==0.27.0
+websockets==12.0
+
+# ── Nebius / OpenAI-compatible SDK ───────────────────────────────────
+openai==1.35.0
+
+# ── Database ─────────────────────────────────────────────────────────
+asyncpg==0.29.0
+pgvector==0.3.0          # Python type helpers for asyncpg vector columns
+
+# ── OCR ──────────────────────────────────────────────────────────────
+Pillow==10.3.0
+paddlepaddle==2.6.2      # PaddleOCR backend (fallback)
+paddleocr==2.7.3         # Fallback OCR engine
+
+# ── Windows OS integration ────────────────────────────────────────────
+pywin32==306             # win32gui, win32api, win32clipboard, win32con
+pywinauto==0.6.8         # Higher-level UI automation (for future features)
+
+# ── Process monitoring ────────────────────────────────────────────────
+psutil==5.9.8
+
+# ── Filesystem watching ───────────────────────────────────────────────
+watchdog==4.0.0
+
+# ── Credential management ─────────────────────────────────────────────
+keyring==25.2.1
+
+# ── Utilities ─────────────────────────────────────────────────────────
+python-dotenv==1.0.1
+pydantic==2.7.1
+pydantic-settings==2.3.1
+
+# ── Testing ───────────────────────────────────────────────────────────
+pytest==8.2.2
+pytest-asyncio==0.23.7
+respx==0.21.1            # Mock httpx for Tavily/Nebius tests
