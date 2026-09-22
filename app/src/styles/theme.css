@@ -143,3 +143,390 @@ html, body, #root {
   color: var(--color-text-hi);
   border-color: var(--color-edge);
 }
+
+.btn-sm {
+  font-size: 11px;
+  padding: 6px 12px;
+}
+
+/* ── Landing Page ───────────────────────────────────────────────────── */
+.landing-page {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-canvas);
+}
+
+.landing-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: var(--space-6);
+  max-width: 800px;
+  width: 100%;
+}
+
+.neuron-sphere {
+  margin-bottom: var(--space-5);
+}
+
+.hero-text {
+  margin-bottom: var(--space-5);
+}
+
+.hero-title {
+  font-family: 'Space Grotesk', var(--font-sans);
+  font-weight: 800;
+  font-size: 72px;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: var(--color-text-hi);
+  text-shadow: 0 0 40px var(--color-accent-dim);
+  margin-bottom: var(--space-3);
+}
+
+.hero-subtitle {
+  font-size: 18px;
+  font-weight: 400;
+  color: var(--color-text-mid);
+  max-width: 480px;
+  margin: 0 auto var(--space-6);
+  line-height: 1.6;
+}
+
+.cta-button {
+  background: var(--color-accent);
+  color: var(--color-text-hi);
+  font-weight: 700;
+  font-size: 14px;
+  padding: 14px 32px;
+  border-radius: var(--radius);
+  border: none;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all var(--ease-fast);
+  margin-bottom: var(--space-6);
+}
+
+.cta-button:hover {
+  background: radial-gradient(circle at center, #8ED000 0%, var(--color-accent) 70%);
+  box-shadow: 0 0 24px var(--color-accent-glow);
+  transform: translateY(-1px);
+}
+
+.cta-button:active {
+  transform: translateY(0);
+  box-shadow: 0 0 12px var(--color-accent-dim);
+}
+
+.feature-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--space-4);
+  width: 100%;
+  margin-top: var(--space-4);
+}
+
+.feature-card {
+  position: relative;
+  padding: var(--space-5);
+  text-align: left;
+}
+
+.feature-icon {
+  font-size: 20px;
+  margin-bottom: var(--space-2);
+  display: block;
+}
+
+.feature-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text-hi);
+  margin-bottom: var(--space-2);
+}
+
+.feature-desc {
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--color-text-mid);
+  line-height: 1.6;
+}
+
+/* ── Synapse Card (Overlay HUD) ────────────────────────────────────── */
+.synapse-card {
+  background: var(--color-panel);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  width: 380px;
+  max-width: calc(100vw - 48px);
+  box-shadow:
+    0 16px 48px rgba(0, 0, 0, 0.6),
+    0 0 0 1px var(--color-border);
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 10000;
+  animation: slideIn 0.2s var(--ease-std);
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.synapse-card.loading {
+  animation: dataPulse 1.2s ease-in-out infinite, slideIn 0.2s var(--ease-std);
+}
+
+.synapse-card__header {
+  background: var(--color-panel);
+  border-bottom: 1px solid var(--color-accent);
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+
+.synapse-card__brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.synapse-logo {
+  color: var(--color-accent);
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.synapse-card__brand span {
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-hi);
+}
+
+.synapse-card__controls {
+  display: flex;
+  gap: 6px;
+}
+
+.synapse-card__meta {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.context-badge,
+.memory-badge {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-text-lo);
+}
+
+.memory-badge {
+  color: var(--color-accent);
+}
+
+.synapse-card__response {
+  padding: 16px 14px;
+  color: var(--color-text-hi);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.synapse-card__tavily {
+  padding: 12px 14px;
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+  background: rgba(118, 185, 0, 0.05);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tavily-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-accent);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.tavily-link {
+  font-size: 12px;
+  color: var(--color-text-mid);
+  text-decoration: none;
+  transition: color var(--ease-fast);
+}
+
+.tavily-link:hover {
+  color: var(--color-accent);
+}
+
+.tavily-saved {
+  font-size: 10px;
+  color: var(--color-text-lo);
+  font-family: var(--font-mono);
+}
+
+.synapse-card__action-bar {
+  padding: 10px 14px;
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  color: var(--color-text-lo);
+}
+
+.model-badge {
+  font-family: var(--font-mono);
+  color: var(--color-accent);
+}
+
+.usage-badge {
+  font-family: var(--font-mono);
+}
+
+/* ── Status Indicator (for debugging) ───────────────────────────────── */
+.status-indicator {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--color-panel);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--color-text-mid);
+  z-index: 9999;
+}
+
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-border);
+}
+
+.status-indicator[data-state="REASONING"] .status-dot,
+.status-indicator[data-state="CAPTURING"] .status-dot {
+  background: var(--color-accent);
+  animation: pulse 1s ease-in-out infinite;
+}
+
+.status-indicator[data-state="READY"] .status-dot {
+  background: var(--color-accent);
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.pulse-ring {
+  width: 8px;
+  height: 8px;
+  border: 2px solid var(--color-accent);
+  border-radius: 50%;
+  animation: ringPulse 1.5s ease-out infinite;
+}
+
+@keyframes ringPulse {
+  0% { transform: scale(1); opacity: 1; }
+  100% { transform: scale(2.5); opacity: 0; }
+}
+
+/* ── App container ──────────────────────────────────────────────────── */
+.app {
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+/* ── Responsive ─────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .hero-title {
+    font-size: 48px;
+  }
+
+  .synapse-card {
+    width: calc(100vw - 32px);
+    bottom: 16px;
+    right: 16px;
+    left: 16px;
+  }
+
+  .feature-cards {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* -- DiffViewer (DESIGN.md section 3 code block) -- */
+.synapse-card__prose {
+  color: var(--color-text-hi);
+  font-size: 13px;
+  line-height: 1.6;
+  margin-bottom: var(--space-2);
+  white-space: pre-wrap;
+}
+.synapse-card__code {
+  background: var(--color-code-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-x: auto;
+  white-space: pre;
+  margin-bottom: var(--space-2);
+}
+.diff-add { background: var(--color-diff-add); color: var(--color-text-hi); display: block; }
+.diff-del { background: var(--color-diff-del); color: var(--color-text-mid); display: block; }
+.diff-hunk { color: var(--color-accent); display: block; }
+.diff-ctx { color: var(--color-text-mid); display: block; }
+
+/* -- Manual invoke bar -- */
+.invoke-bar {
+  position: fixed;
+  bottom: 24px;
+  left: 24px;
+  display: flex;
+  gap: var(--space-2);
+  z-index: 10;
+}
+.invoke-input {
+  background: var(--color-panel);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  color: var(--color-text-hi);
+  font-size: 13px;
+  padding: 10px 14px;
+  width: 320px;
+  outline: none;
+}
+.invoke-input:focus { border-color: var(--color-accent); }
+.invoke-input:disabled { opacity: 0.5; }
+.btn-sm { padding: 8px 16px; font-size: 12px; }

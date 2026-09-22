@@ -105,8 +105,10 @@ class FilePatcher:
             if line.startswith("+++ "):
                 if current_file and current_hunks:
                     file_patches[current_file] = current_hunks
-                # Extract filename (strip b/ prefix from git diff)
-                current_file = re.sub(r"^\+\+\+ [ab]/", "", line).strip()
+                # Strip the "+++ " marker, then an optional git b/ prefix.
+                # Handles both "+++ b/rel/path.py" and "+++ C:\abs\path.py".
+                current_file = line[4:].strip()
+                current_file = re.sub(r"^[ab]/", "", current_file).strip('"').strip("'")
                 current_hunks = []
             elif line.startswith("@@"):
                 # Parse hunk header: @@ -start,count +start,count @@

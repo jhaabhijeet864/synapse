@@ -21,6 +21,7 @@ import win32gui
 import win32ui
 import win32con
 import win32api
+import win32process
 from PIL import Image
 import ctypes
 
@@ -81,9 +82,14 @@ class WindowsOCR:
 
     async def _init_paddleocr(self) -> None:
         """Lazy-load PaddleOCR to avoid slow import on startup."""
+        if self._paddle_ocr is not None:
+            return
         from paddleocr import PaddleOCR
         # use_angle_cls=False for speed; det=True, rec=True are defaults
-        self._paddle_ocr = PaddleOCR(use_angle_cls=False, lang="en", show_log=False)
+        loop = asyncio.get_event_loop()
+        self._paddle_ocr = await loop.run_in_executor(
+            None, lambda: PaddleOCR(use_angle_cls=False, lang="en", show_log=False)
+        )
 
     async def capture_active_window(self) -> Optional[OCRSnapshot]:
         """
@@ -96,7 +102,7 @@ class WindowsOCR:
             return None
 
         window_title = win32gui.GetWindowText(hwnd)
-        _, pid = win32gui.GetWindowThreadProcessId(hwnd)
+        _, pid = win32process.GetWindowThreadProcessId(hwnd)
         app_name = self._get_process_name(pid)
 
         # Capture window bitmap
@@ -106,10 +112,17 @@ class WindowsOCR:
             print(f"[OCR] Bitmap capture failed: {e}")
             return None
 
-        # Run OCR
+        # Run OCR — prefer WinRT, auto-fallback to PaddleOCR on any failure
+        # so one broken lane never kills ambient capture.
         try:
             if self._use_winrt:
-                text = await self._winrt_ocr(image)
+                try:
+                    text = await self._winrt_ocr(image)
+                except Exception as e:
+                    print(f"[OCR] WinRT failed ({e}), trying PaddleOCR fallback")
+                    if self._paddle_ocr is None:
+                        await self._init_paddleocr()
+                    text = await self._paddleocr_extract(image)
             else:
                 text = await self._paddleocr_extract(image)
         except Exception as e:
@@ -169,22 +182,57 @@ class WindowsOCR:
         return image
 
     async def _winrt_ocr(self, image: Image.Image) -> str:
-        """Run WinRT OCR on a PIL Image. Runs in executor to avoid blocking."""
-        import winrt.windows.media.ocr as winrt_ocr
-        import winrt.windows.graphics.imaging as imaging
+        """Run WinRT OCR on a PIL Image via SoftwareBitmap pipeline.
+
+        Pipeline: PIL RGB -> PNG bytes -> InMemoryRandomAccessStream ->
+        BitmapDecoder -> SoftwareBitmap (Gray8) -> OcrEngine.recognize_async.
+
+        Runs natively async (no executor — WinRT COM needs the calling
+        thread). Raises on failure so the caller can fall back to PaddleOCR.
+        """
+        import asyncio
         import io
 
-        loop = asyncio.get_event_loop()
+        if self._engine is None:
+            raise RuntimeError("WinRT OCR engine not initialized")
 
-        def _sync_ocr():
-            # Convert PIL to SoftwareBitmap (simplified via buffer)
-            buf = io.BytesIO()
-            image.save(buf, format="BMP")
-            # TODO: Full WinRT SoftwareBitmap conversion
-            # Placeholder — integrate winrt.windows.graphics.imaging properly
-            return ""
+        import winrt.windows.graphics.imaging as imaging
+        import winrt.windows.storage.streams as streams
 
-        return await loop.run_in_executor(None, _sync_ocr)
+        # Normalize: WinRT OCR wants Gray8 or Bgra8. Encode as PNG bytes.
+        rgb = image.convert("RGB")
+        buf = io.BytesIO()
+        # Downscale very large captures to bound latency/memory (< 2200px max dim)
+        max_dim = 2200
+        if max(rgb.size) > max_dim:
+            rgb.thumbnail((max_dim, max_dim), Image.LANCZOS)
+        rgb.save(buf, format="PNG")
+        raw = buf.getvalue()
+
+        # Bytes -> WinRT random-access stream
+        mem_stream = streams.InMemoryRandomAccessStream()
+        writer = streams.DataWriter(mem_stream.get_output_stream_at(0))
+        writer.write_bytes(raw)
+        await writer.store_async()
+        await writer.flush_async()
+        writer.detach_stream()
+        mem_stream.seek(0)
+
+        # Decode -> SoftwareBitmap
+        decoder = await imaging.BitmapDecoder.create_async(mem_stream)
+        software_bitmap = await decoder.get_software_bitmap_async()
+
+        # Convert to Gray8 (most compatible for OcrEngine across Win builds)
+        if software_bitmap.bitmap_pixel_format != imaging.BitmapPixelFormat.GRAY8:
+            software_bitmap = imaging.SoftwareBitmap.convert(
+                software_bitmap, imaging.BitmapPixelFormat.GRAY8
+            )
+
+        # Recognize with a safety timeout so a hung COM call can't stall the lane
+        result = await asyncio.wait_for(
+            self._engine.recognize_async(software_bitmap), timeout=15.0
+        )
+        return (result.text or "").strip()
 
     async def _paddleocr_extract(self, image: Image.Image) -> str:
         """Run PaddleOCR on a PIL Image."""
@@ -216,8 +264,15 @@ class OCRMonitor:
     Emits OCRSnapshot events when content changes.
     """
 
-    def __init__(self, on_snapshot, poll_interval: float = WindowsOCR.POLL_INTERVAL_S):
+    def __init__(self, on_snapshot, poll_interval: float | None = None):
         self.on_snapshot = on_snapshot
+        # Default from Settings (env SYNAPSE_OCR_POLL_INTERVAL) unless overridden.
+        if poll_interval is None:
+            try:
+                from core.config import settings
+                poll_interval = settings.ocr_poll_interval_s
+            except Exception:
+                poll_interval = WindowsOCR.POLL_INTERVAL_S
         self.poll_interval = poll_interval
         self._ocr = WindowsOCR()
         self._running = False
@@ -226,9 +281,19 @@ class OCRMonitor:
         await self._ocr.initialize()
         self._running = True
         while self._running:
-            snapshot = await self._ocr.capture_active_window()
+            try:
+                snapshot = await self._ocr.capture_active_window()
+            except Exception as e:
+                print(f"[OCR] Monitor poll failed: {e}")
+                snapshot = None
             if snapshot:
-                await self.on_snapshot(snapshot)
+                try:
+                    result = self.on_snapshot(snapshot)
+                    # Support both sync callbacks (aggregator.update_ocr) and async ones
+                    if asyncio.iscoroutine(result):
+                        await result
+                except Exception as e:
+                    print(f"[OCR] on_snapshot handler failed: {e}")
             await asyncio.sleep(self.poll_interval)
 
     def stop(self) -> None:

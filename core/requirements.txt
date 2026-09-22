@@ -18,6 +18,11 @@ pgvector==0.3.0          # Python type helpers for asyncpg vector columns
 Pillow==10.3.0
 paddlepaddle==2.6.2      # PaddleOCR backend (fallback)
 paddleocr==2.7.3         # Fallback OCR engine
+winrt-Windows.Media.Ocr==3.2.1        # Primary WinRT OCR engine
+winrt-Windows.Graphics.Imaging==3.2.1 # PIL -> SoftwareBitmap pipeline
+winrt-Windows.Storage.Streams==3.2.1  # InMemoryRandomAccessStream for decoder
+winrt-Windows.Globalization==3.2.1    # OcrEngine language selection
+winrt-Windows.Foundation==3.2.1       # IAsyncOperation runtime for awaits
 
 # ── Windows OS integration ────────────────────────────────────────────
 pywin32==306             # win32gui, win32api, win32clipboard, win32con

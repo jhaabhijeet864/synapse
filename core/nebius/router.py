@@ -23,6 +23,9 @@ Target latencies:
 """
 
 import json
+import logging
+import re
+import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum, auto
@@ -32,12 +35,34 @@ from core.engine.aggregator import ContextBundle
 from core.engine.redaction import scrub
 from core.nebius.client import NebiusClient
 
+from core.logging_config import setup_logging
+
+logger = setup_logging()
+
 
 class RoutingDecision(Enum):
     NANO_SUFFICIENT  = auto()  # Nano can handle this alone
     ESCALATE_ULTRA   = auto()  # Needs Nemotron 3 Ultra
     NEEDS_TAVILY     = auto()  # Needs web search before Ultra
     IGNORE           = auto()  # Not relevant enough to surface
+
+
+@dataclass
+class TriageResult:
+    """Stage-1 output: Nano's classification before any Ultra/Tavily work."""
+    decision: RoutingDecision
+    decision_str: str               # Raw string from Nano ("escalate_ultra", …)
+    relevance: int                  # 0-100 relevance score
+    requires_tavily: bool
+    tavily_query: Optional[str]
+    nano_response: str              # Set when decision == NANO_SUFFICIENT
+    reasoning_hint: str
+    safe_context: str               # Scrubbed bundle text (reused for Ultra prompt)
+
+
+TAVILY_SECTION_TEMPLATE = """WEB RESEARCH (Tavily):
+{tavily}
+(Use these live sources. Prefer them over training-data knowledge.)"""
 
 
 @dataclass
@@ -78,6 +103,8 @@ TRIAGE HINT: {hint}
 
 {memory_section}
 
+{tavily_section}
+
 Provide a precise, actionable response. If the issue involves code:
 1. Explain the root cause in 2-3 sentences
 2. Provide a unified diff patch (```diff format)
@@ -106,30 +133,25 @@ class NanoRouter:
     def __init__(self, client: NebiusClient):
         self._client = client
 
-    async def route(self, bundle: ContextBundle) -> Optional[RouterOutput]:
+    async def triage(self, bundle: ContextBundle) -> Optional[TriageResult]:
         """
-        Main entry point. Returns RouterOutput or None if context is irrelevant.
+        Stage 1 only: scrub + Nano classification. Returns None when the
+        bundle scores below RELEVANCE_THRESHOLD (not worth surfacing).
         """
-        import time
-        t0 = time.perf_counter()
-
-        # Scrub before sending to cloud
         safe_context = scrub(bundle.to_prompt_context())
-
-        # ── Stage 1: Nano triage ──────────────────────────────────────
         triage_prompt = NANO_TRIAGE_PROMPT.format(context=safe_context)
-        nano_raw = await self._client.complete_nano(triage_prompt, max_tokens=256)
+        # NOTE: max_tokens=256 makes this Nemotron endpoint return EMPTY
+        # content (verified live). 1024 is the working minimum for triage.
+        nano_raw = await self._client.complete_nano(triage_prompt, max_tokens=1024)
 
-        try:
-            triage = json.loads(nano_raw.strip())
-        except json.JSONDecodeError:
-            # Nano returned malformed JSON — extract what we can
+        triage = self._parse_triage_json(nano_raw)
+        if triage is None:
+            # Nano returned unusable output — treat as not worth surfacing
             triage = {"decision": "ignore", "relevance_score": 0}
 
         relevance = triage.get("relevance_score", 0)
         decision_str = triage.get("decision", "ignore")
 
-        # Map string decision to enum
         decision_map = {
             "nano_sufficient": RoutingDecision.NANO_SUFFICIENT,
             "escalate_ultra":  RoutingDecision.ESCALATE_ULTRA,
@@ -138,43 +160,126 @@ class NanoRouter:
         }
         decision = decision_map.get(decision_str, RoutingDecision.IGNORE)
 
-        # Below threshold — not worth surfacing
+        # Below threshold — not worth surfacing (escalations always pass)
         if relevance < self.RELEVANCE_THRESHOLD and decision != RoutingDecision.ESCALATE_ULTRA:
             return None
 
-        requires_tavily = triage.get("needs_tavily", False)
-        tavily_query = triage.get("tavily_query")
-        hint = triage.get("reasoning_hint", "")
+        return TriageResult(
+            decision=decision,
+            decision_str=decision_str,
+            relevance=relevance,
+            requires_tavily=triage.get("needs_tavily", False),
+            tavily_query=triage.get("tavily_query"),
+            nano_response=triage.get("nano_response", "") or "",
+            reasoning_hint=triage.get("reasoning_hint", "") or "",
+            safe_context=safe_context,
+        )
+
+    @staticmethod
+    def _parse_triage_json(raw: str) -> Optional[dict]:
+        """Extract Nano's triage JSON, tolerating fences and prose.
+
+        Handles: bare JSON, ```json fences, and trailing commentary.
+        Returns None when no parseable object is found.
+        """
+        if not raw or not raw.strip():
+            return None
+        text = raw.strip()
+        # Strip markdown fences if present
+        fence = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+        if fence:
+            text = fence.group(1)
+        else:
+            # Fall back to the first {...} block in the text
+            brace = re.search(r"\{.*\}", text, re.DOTALL)
+            if brace:
+                text = brace.group(0)
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            return None
+        return parsed if isinstance(parsed, dict) else None
+
+    def build_ultra_prompt(
+        self,
+        bundle: ContextBundle,
+        triage: TriageResult,
+        tavily_injection: str = "",
+    ) -> str:
+        """Assemble the Ultra prompt: context + hint + memory + Tavily."""
+        memory_section = self._format_memory(bundle.memory_context)
+        tavily_section = (
+            TAVILY_SECTION_TEMPLATE.format(tavily=tavily_injection)
+            if tavily_injection
+            else ""
+        )
+        return ULTRA_REASONING_PROMPT.format(
+            context=triage.safe_context,
+            hint=triage.reasoning_hint,
+            memory_section=memory_section,
+            tavily_section=tavily_section,
+        )
+
+    async def route(self, bundle: ContextBundle) -> Optional[RouterOutput]:
+        """
+        Main entry point. Returns RouterOutput or None if context is irrelevant.
+Compat path: triage -> Nano direct answer or Ultra (no Tavily injection;
+        the server pipeline uses triage()/build_ultra_prompt() for that).
+        """
+        t0 = time.perf_counter()
+
+        triage = await self.triage(bundle)
+        if triage is None:
+            return None
 
         # ── Stage 2: Return Nano response if sufficient ───────────────
-        if decision == RoutingDecision.NANO_SUFFICIENT:
-            nano_response = triage.get("nano_response", "")
+        if triage.decision == RoutingDecision.NANO_SUFFICIENT:
             elapsed = (time.perf_counter() - t0) * 1000
+            logger.info(
+            {
+                "stage": "nano_triage",
+                "latency_ms": round(elapsed, 1),
+                "escalate": False,
+                "classification": triage.decision_str,
+            }
+        )
             return RouterOutput(
-                decision=decision,
-                nano_classification=decision_str,
+                decision=triage.decision,
+                nano_classification=triage.decision_str,
                 requires_tavily=False,
                 tavily_query=None,
-                final_response=nano_response,
+                final_response=triage.nano_response,
                 model_used="nano",
                 latency_ms=round(elapsed, 1),
             )
 
         # ── Stage 3: Escalate to Ultra ────────────────────────────────
-        memory_section = self._format_memory(bundle.memory_context)
-        ultra_prompt = ULTRA_REASONING_PROMPT.format(
-            context=safe_context,
-            hint=hint,
-            memory_section=memory_section,
-        )
+        ultra_t0 = time.perf_counter()
+        ultra_prompt = self.build_ultra_prompt(bundle, triage)
         ultra_response = await self._client.complete_ultra(ultra_prompt)
         elapsed = (time.perf_counter() - t0) * 1000
 
+        ultra_elapsed = (time.perf_counter() - ultra_t0) * 1000
+
+        # Estimate tokens from response length for efficiency metric
+        tokens_in = len(ultra_prompt) // 4
+        tokens_out = len(ultra_response) // 4
+
+        logger.info(
+            {
+                "stage": "nemotron_ultra",
+                "latency_ms": round(ultra_elapsed, 1),
+                "tokens_in": tokens_in,
+                "tokens_out": tokens_out,
+                "escalate": True,
+            }
+        )
+
         return RouterOutput(
-            decision=decision,
-            nano_classification=decision_str,
-            requires_tavily=requires_tavily,
-            tavily_query=tavily_query,
+            decision=triage.decision,
+            nano_classification=triage.decision_str,
+            requires_tavily=triage.requires_tavily,
+            tavily_query=triage.tavily_query,
             final_response=ultra_response,
             model_used="ultra",
             latency_ms=round(elapsed, 1),

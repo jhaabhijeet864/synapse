@@ -14,6 +14,20 @@ def _env(key: str, default: str = "") -> str:
     return os.environ.get(key, default)
 
 
+def _env_float(key: str, default: float) -> float:
+    try:
+        return float(os.environ.get(key, default))
+    except (ValueError, TypeError):
+        return default
+
+
+def _env_int(key: str, default: int) -> int:
+    try:
+        return int(float(os.environ.get(key, default)))
+    except (ValueError, TypeError):
+        return default
+
+
 @dataclass
 class Settings:
     # ── Server ──────────────────────────────────────────────────────
@@ -27,11 +41,11 @@ class Settings:
     # ── Tavily ──────────────────────────────────────────────────────
     tavily_api_key: str = field(default_factory=lambda: _env("TAVILY_API_KEY"))
 
-    # ── Capture tuning ───────────────────────────────────────────────
-    ocr_poll_interval_s: float = 5.0
-    focus_poll_interval_s: float = 10.0
-    trigger_emit_threshold: int = 60
-    suppression_cooldown_s: int = 60
+    # ── Capture tuning (overridable via SYNAPSE_* env vars, see .env.example) ──
+    ocr_poll_interval_s: float = field(default_factory=lambda: _env_float("SYNAPSE_OCR_POLL_INTERVAL", 5.0))
+    focus_poll_interval_s: float = field(default_factory=lambda: _env_float("SYNAPSE_FOCUS_POLL_INTERVAL", 10.0))
+    trigger_emit_threshold: int = field(default_factory=lambda: _env_int("SYNAPSE_TRIGGER_THRESHOLD", 60))
+    suppression_cooldown_s: int = field(default_factory=lambda: _env_int("SYNAPSE_SUPPRESSION_COOLDOWN", 60))
 
     # ── Budget ───────────────────────────────────────────────────────
     nebius_budget_usd: float = 50.0

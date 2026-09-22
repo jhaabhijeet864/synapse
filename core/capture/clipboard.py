@@ -111,8 +111,13 @@ class ClipboardMonitor:
         ctypes.windll.user32.AddClipboardFormatListener(self._hwnd)
         win32gui.PumpMessages()
 
+    # WM_CLIPBOARDUPDATE (0x031D) is NOT in pywin32's win32con —
+    # referencing win32con.WM_CLIPBOARDUPDATE raises AttributeError and
+    # kills the fast-lane listener on the first clipboard change.
+    WM_CLIPBOARDUPDATE = 0x031D
+
     def _wnd_proc(self, hwnd, msg, wparam, lparam):
-        if msg == win32con.WM_CLIPBOARDUPDATE:
+        if msg == self.WM_CLIPBOARDUPDATE:
             self._handle_change()
         elif msg == win32con.WM_DESTROY:
             ctypes.windll.user32.RemoveClipboardFormatListener(hwnd)

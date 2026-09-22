@@ -22,11 +22,12 @@ export interface SynapseCard {
     nano_calls: number;
     ultra_calls: number;
     estimated_spend_usd: number;
+    budget_remaining_usd: number;
   };
 }
 
 interface DaemonMessageBase {
-  type: "state_change" | "synapse_card";
+  type: "state_change" | "synapse_card" | "synapse_chunk";
 }
 
 interface StateChangeMessage extends DaemonMessageBase {
@@ -47,7 +48,13 @@ interface SynapseCardMessage extends DaemonMessageBase {
   usage: SynapseCard["usage"];
 }
 
-type DaemonMessage = StateChangeMessage | SynapseCardMessage;
+type DaemonMessage = StateChangeMessage | SynapseCardMessage | SynapseChunkMessage;
+
+interface SynapseChunkMessage extends DaemonMessageBase {
+  type: "synapse_chunk";
+  trigger: string;
+  delta: string;
+}
 
 const WS_URL = import.meta.env.VITE_DAEMON_WS_URL ?? "ws://127.0.0.1:8420/ws";
 const HTTP_URL = import.meta.env.VITE_DAEMON_HTTP_URL ?? "http://127.0.0.1:8420";
@@ -59,16 +66,30 @@ export type ConnectionStatus = "disconnected" | "connecting" | "connected";
 
 export interface UseDaemonSocketOptions {
   onCard?: (card: SynapseCard) => void;
+  onChunk?: (delta: string, trigger: string) => void;
   onStateChange?: (state: SynapseState) => void;
   onConnectionChange?: (status: ConnectionStatus) => void;
+}
+
+export interface StoreMemoryPayload {
+  app_context: string;
+  problem: string;
+  resolution: string;
+  extensions?: string[];
 }
 
 export interface UseDaemonSocketReturn {
   status: ConnectionStatus;
   daemonState: SynapseState;
+  streaming: string;
   invoke: (query: string, signal?: AbortSignal) => Promise<void>;
   dismiss: (signal?: AbortSignal) => Promise<void>;
   applyFix: (patch: string, signal?: AbortSignal) => Promise<void>;
+  storeMemory: (payload: StoreMemoryPayload, signal?: AbortSignal) => Promise<void>;
+}
+
+function isSynapseChunkMessage(msg: DaemonMessage): msg is SynapseChunkMessage {
+  return msg.type === "synapse_chunk";
 }
 
 function isStateChangeMessage(msg: DaemonMessage): msg is StateChangeMessage {
@@ -104,6 +125,7 @@ export function useDaemonSocket(opts: UseDaemonSocketOptions = {}): UseDaemonSoc
 
   const [status, setStatus] = useState<ConnectionStatus>("disconnected");
   const [daemonState, setDaemonState] = useState<SynapseState>("IDLE");
+  const [streaming, setStreaming] = useState<string>("");
 
   const clearReconnectTimeout = useCallback(() => {
     if (reconnectTimeoutRef.current) {
@@ -172,8 +194,13 @@ export function useDaemonSocket(opts: UseDaemonSocketOptions = {}): UseDaemonSoc
         const msg: DaemonMessage = JSON.parse(event.data);
         if (isStateChangeMessage(msg) && msg.state) {
           setDaemonState(msg.state);
+          if (msg.state === "REASONING") setStreaming("");
           optsRef.current.onStateChange?.(msg.state);
+        } else if (isSynapseChunkMessage(msg)) {
+          setStreaming((prev) => prev + (msg.delta || ""));
+          optsRef.current.onChunk?.(msg.delta || "", msg.trigger);
         } else if (isSynapseCardMessage(msg)) {
+          setStreaming("");
           optsRef.current.onCard?.(messageToCard(msg));
         }
       } catch {
@@ -241,5 +268,12 @@ export function useDaemonSocket(opts: UseDaemonSocketOptions = {}): UseDaemonSoc
     [httpRequest]
   );
 
-  return { status, daemonState, invoke, dismiss, applyFix };
+  const storeMemory = useCallback(
+    async (payload: StoreMemoryPayload, signal?: AbortSignal) => {
+      await httpRequest("/action/store-memory", payload, signal);
+    },
+    [httpRequest]
+  );
+
+  return { status, daemonState, streaming, invoke, dismiss, applyFix, storeMemory };
 }
