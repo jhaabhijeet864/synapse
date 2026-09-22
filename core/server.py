@@ -9,7 +9,9 @@ Listens on localhost:8420. Provides:
   - Startup lifecycle: initializes all context monitors and Nebius clients
 
 This is the entry point for the Python daemon.
-Run with: python core/server.py
+Run from repo root with either:
+    python core/server.py
+    python -m core.server
 """
 
 import asyncio
@@ -22,6 +24,12 @@ import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
+# Allow `python core/server.py` from the repo root: running a file inside
+# a package puts core/ (not the root) on sys.path, which breaks `from core…`
+# imports. Insert the repo root when executed as a script.
+if __name__ == "__main__" and __package__ is None:
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from core.config import settings
 from core.capture.clipboard import ClipboardMonitor
 from core.capture.ocr import OCRMonitor
@@ -29,6 +37,7 @@ from core.capture.process_watcher import ProcessWatcher
 from core.capture.filesystem import FilesystemWatcher
 from core.engine.aggregator import ContextAggregator, ContextBundle
 from core.engine.state_machine import StateMachine, SynapseState
+from core.logging_config import setup_logging
 from core.nebius.client import NebiusClient
 from core.nebius.router import NanoRouter, RoutingDecision
 from core.nebius.memory import PGVectorMemory
@@ -37,10 +46,29 @@ from core.tools.tavily_search import TavilySearch
 
 # ── App setup ─────────────────────────────────────────────────────────
 
+logger = setup_logging()
+
+# Event loop of the async runtime, captured at startup. Win32 monitor
+# threads (clipboard) must schedule coroutines via run_coroutine_threadsafe
+# — asyncio.create_task() has no running loop on those threads.
+_main_loop: asyncio.AbstractEventLoop | None = None
+
+
+def _on_clipboard_threadsafe(event) -> None:
+    """Thread-safe bridge: Win32 WNDPROC thread → async aggregator."""
+    if _main_loop is None or aggregator is None:
+        return
+    try:
+        asyncio.run_coroutine_threadsafe(aggregator.on_clipboard_event(event), _main_loop)
+    except RuntimeError as e:
+        logger.warning(f"clipboard bridge dropped event: {e}")
+
+
 async def _startup() -> None:
-    global nebius, memory, router, tavily, aggregator, state_machine
+    global nebius, memory, router, tavily, aggregator, state_machine, _main_loop
 
     print("[Synapse] Starting daemon on port 8420...")
+    _main_loop = asyncio.get_running_loop()
 
     # Nebius clients
     nebius = NebiusClient()
@@ -136,10 +164,9 @@ async def start_capture_monitors() -> None:
     fs_watcher = FilesystemWatcher(on_change=aggregator.update_project)
     await fs_watcher.start()
 
-    # Clipboard monitor — fast lane (runs in a thread)
-    clipboard = ClipboardMonitor(
-        on_change=lambda event: asyncio.create_task(aggregator.on_clipboard_event(event))
-    )
+    # Clipboard monitor — fast lane (runs in a Win32 thread; bridge
+    # schedules onto the captured loop — never create_task() here)
+    clipboard = ClipboardMonitor(on_change=_on_clipboard_threadsafe)
     clipboard.start()
 
 

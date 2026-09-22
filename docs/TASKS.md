@@ -32,7 +32,7 @@
 - [ ] Register global shortcut Ctrl+Shift+Space in `app/src-tauri/src/main.rs` → POST `/invoke` (plugin dep added, registration code missing)
 - [ ] Verify WS heartbeat + auto-reconnect against live daemon (`useDaemonSocket` status transitions)
 - [ ] Verify card actions live: Dismiss → SUPPRESSED, Apply Fix → clipboard, Save/store-memory → PGVector row
-- [ ] Fix pytest-asyncio config so async tests run in normal `pytest` (see Blocked)
+- [x] Fix pytest-asyncio config so async tests run (`pytest.ini` with `asyncio_mode = auto`; full suite 24 passed 2026-09-22 — canonical local cmd in `pytest.ini` header)
 
 ### Week 3 — Memory + Tavily (Oct 6–12)
 - [ ] Live PGVector round-trip: store 1 memory → search returns it with similarity score
@@ -97,7 +97,18 @@
 - [x] `core/tools/tavily_search.py` — search + Markdown compile + `~/synapse_notes` auto-save
 - [x] `core/tools/file_patcher.py` — unified-diff apply with backup + traversal guard
 - [x] `core/doctor.py`, `scripts/setup_env.bat`, `tests/test_*.py` (4 files) exist
-- [x] Sync test suite: 13 passed (`PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest tests -q -p no:cacheprovider`)
+- [x] Full test suite: 24 passed (`PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest tests -q -p asyncio -p no:cacheprovider`)
+- [x] `pytest.ini` (`asyncio_mode = auto`) + `.github/workflows/ci.yml` (backend pytest + frontend `npm run build`)
+- [x] `core/doctor.py` rewritten on project conventions (keys via `core.config`, DB via asyncpg, Nebius via `NEBIUS_BASE_URL`); `python -m core.doctor` all-green (pgvector v0.8.6, 1 memory, dim 4096, Nebius reachable); root `test_db.py` folded in and deleted
+- [x] Merge conflict resolved in `core/nebius/router.py` (3 hunks, kept 3432999 side: `import time` + `ultra_t0` + telemetry `logger.info` blocks) — found because the suite failed collection on it
+- [x] `core/server.py` truncation repaired — a truncated 83-line rewrite (valid syntax, zero functionality) replaced the full daemon; restored 321-line version from `3432999` (lifespan, `synapse_chunk` streaming, FilePatcher apply-fix, all routes). Merge `70f2f23` committed by user; tree conflict-free
+- [x] `tests/test_server_smoke.py` — regression guard: app object, 7 required routes, 11 pipeline/entry symbols, FSM states (suite now 28 passed)
+- [x] Daemon boot fixes (found live 2026-09-22): repo-root `sys.path` bootstrap in `server.py` so `python core/server.py` works (was `No module named 'core'`); `win32gui.GetWindowThreadProcessId` → `win32process` in `process_watcher.py:126` + `ocr.py:104` (was killing the focus watcher on first poll). Boot verified: `Application startup complete`, Uvicorn on :8420
+- [x] `tauri dev` EBUSY fix: Vite watcher crashed on `src-tauri/target/**/*.dll` during cargo compile — `vite.config.ts` now ignores `**/src-tauri/**` + `**/target/**` (build verified, 24 modules)
+- [x] `src-tauri/src/main.rs` fix: `get_webview_window` needs `use tauri::Manager;` (E0599 broke dev compile; `cargo check` passes now)
+- [x] Lane 2 live bugs (E2E fired, pipeline aborted REASONING→IDLE): `win32con.WM_CLIPBOARDUPDATE` doesn't exist in pywin32 — defined `0x031D` constant in `clipboard.py` (was killing fast lane on every clipboard change); Nano triage returned EMPTY with `max_tokens=256` (endpoint quirk, verified live) — bumped to 1024 + added fence-tolerant `_parse_triage_json` + 5 unit tests (suite 33 passed)
+- [x] Daemon 500s root-caused from user boot log: `server.py` used `logger.info` with no `logger` defined (3432999 dropped the init) — added `setup_logging()` + module logger; clipboard thread called `asyncio.create_task` with no running loop — added `_main_loop` capture + `run_coroutine_threadsafe` bridge (`_on_clipboard_threadsafe`). Smoke test extended to guard both
+- [x] Repo hygiene: `scripts/start.bat` (daemon + UI launcher), README mermaid diagram + `doctor` step + corrected pytest/live-test snippets, `.pre-commit-config.yaml` (ruff), UI `OFFLINE — LOCAL MODE` badge in `StatusIndicator`
 
 ### Frontend (builds verified)
 - [x] `app/package.json` + `vite.config.ts` + `tsconfig.json` — `npm run build` passes (23 modules, `dist/index.html` emitted)
@@ -122,15 +133,16 @@
 - [x] Tavily CLI: `auth set` (from `.env` key, never printed) → `auth test` "Token is valid"; `search query "NVIDIA Nemotron"` → 10 scored results (top 0.9403)
 - [x] Gotcha recorded: smoke scripts MUST `import core.config` first — importing `core.nebius.client` alone never loads `.env` (`ValueError: NEBIUS_API_KEY not found` otherwise)
 
-### Uncommitted (commit + push pending — from `git status`)
-- Modified: `.env.example`, `app/src/hooks/useDaemonSocket.ts`, `app/src/styles/theme.css`, `core/capture/ocr.py`, `core/config.py`, `core/engine/redaction.py`, `core/nebius/client.py`, `core/nebius/memory.py`, `core/requirements.txt`, `docs/MEMORY_SPEC.md`
-- Untracked: `app/index.html`, `app/package.json`, `app/package-lock.json`, `app/src-tauri/`, `app/src/App.tsx`, `app/src/components/`, `app/src/main.tsx`, `app/src/vite-env.d.ts`, `app/tsconfig*.json`, `app/vite.config.ts`, `core/doctor.py`, `test_db.py`, `tests/test_redaction.py`
+### Uncommitted (commit + push pending — from `git status` 2026-09-23)
+- Modified: `README.md`, `app/src/App.tsx`, `core/doctor.py`, `docs/TASKS.md`; deleted: `test_db.py`
+- Untracked: `.github/workflows/ci.yml`, `.pre-commit-config.yaml`, `pytest.ini`, `scripts/start.bat`, `tests/test_server_smoke.py`
+- Branch `main` is ahead of `origin/main` by 2 commits (merge `70f2f23` + local work) — push needs explicit user approval
 
 ---
 
 ## Blocked
 
-- **pytest default run crashes before collection** — `deepeval` plugin + `pydantic-settings` conflict (`SettingsError: TEMPERATURE`). Workaround (verified): `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest tests -q -p no:cacheprovider` → 13 passed, 7 async skipped. Unblock: add `pytest-asyncio` explicit config (`asyncio_mode = "auto"` in `pytest.ini`/`pyproject`) or run with `-p asyncio`, then re-run full suite.
+- **Plain `pytest` still crashes before collection (env pollution, not repo)** — `deepeval` plugin + `pydantic-settings` conflict (`SettingsError: TEMPERATURE`). Canonical local command (verified 24 passed): `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest tests -q -p asyncio -p no:cacheprovider` (also in `pytest.ini` header). CI is unaffected (fresh env, no deepeval).
 - **WinRT OCR fast path is a stub** — `core/capture/ocr.py:_winrt_ocr` returns `""` (SoftwareBitmap conversion TODO). PaddleOCR fallback carries OCR until this is implemented. Unblock: implement WinRT imaging bridge or lock PaddleOCR as primary and note latency in README.
 - **Nebius billing console unchecked** — endpoints + PGVector verified live (2026-09-22), but promo/Builder credit balances still need a user-side Nebius console → billing check before load testing.
 - **Nano latency 1691ms vs 300ms triage target** — live Nano call works but misses the `<300ms` PRD target; Ultra 3012ms vs `<4s` target is inside. Unblock: profile (cold start vs steady state), consider shorter `max_tokens` / streaming for triage path.

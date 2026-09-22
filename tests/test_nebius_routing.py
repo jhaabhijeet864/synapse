@@ -82,3 +82,38 @@ async def test_router_ignores_low_relevance():
     bundle = _make_bundle("Meeting notes from yesterday")
     output = await router.route(bundle)
     assert output is None
+
+
+def test_parse_triage_json_bare():
+    raw = '{"relevance_score": 90, "decision": "escalate_ultra"}'
+    parsed = NanoRouter._parse_triage_json(raw)
+    assert parsed["decision"] == "escalate_ultra"
+
+
+def test_parse_triage_json_fenced():
+    raw = '```json\n{"relevance_score": 90, "decision": "escalate_ultra"}\n```'
+    parsed = NanoRouter._parse_triage_json(raw)
+    assert parsed["relevance_score"] == 90
+
+
+def test_parse_triage_json_with_prose():
+    raw = 'Here is my analysis:\n{"relevance_score": 10, "decision": "ignore"}\nHope this helps.'
+    parsed = NanoRouter._parse_triage_json(raw)
+    assert parsed["decision"] == "ignore"
+
+
+def test_parse_triage_json_empty_and_garbage():
+    assert NanoRouter._parse_triage_json("") is None
+    assert NanoRouter._parse_triage_json("   ") is None
+    assert NanoRouter._parse_triage_json("no json here at all") is None
+    assert NanoRouter._parse_triage_json("[1, 2, 3]") is None
+
+
+@pytest.mark.asyncio
+async def test_router_empty_nano_response_ignores():
+    """Empty Nano output (seen live with max_tokens=256) must not crash."""
+    client = MagicMock()
+    client.complete_nano = AsyncMock(return_value="")
+    router = NanoRouter(client=client)
+    output = await router.route(_make_bundle())
+    assert output is None

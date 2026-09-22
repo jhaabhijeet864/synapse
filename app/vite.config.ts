@@ -16,5 +16,10 @@ export default defineConfig({
   server: {
     port: 1420,
     strictPort: true,
+    // Never watch Rust build artifacts: cargo writes DLLs under
+    // src-tauri/target while Vite holds watchers -> EBUSY crash.
+    watch: {
+      ignored: ['**/src-tauri/**', '**/target/**'],
+    },
   },
 })

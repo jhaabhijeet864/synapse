@@ -24,6 +24,7 @@ Target latencies:
 
 import json
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -139,12 +140,13 @@ class NanoRouter:
         """
         safe_context = scrub(bundle.to_prompt_context())
         triage_prompt = NANO_TRIAGE_PROMPT.format(context=safe_context)
-        nano_raw = await self._client.complete_nano(triage_prompt, max_tokens=256)
+        # NOTE: max_tokens=256 makes this Nemotron endpoint return EMPTY
+        # content (verified live). 1024 is the working minimum for triage.
+        nano_raw = await self._client.complete_nano(triage_prompt, max_tokens=1024)
 
-        try:
-            triage = json.loads(nano_raw.strip())
-        except json.JSONDecodeError:
-            # Nano returned malformed JSON — extract what we can
+        triage = self._parse_triage_json(nano_raw)
+        if triage is None:
+            # Nano returned unusable output — treat as not worth surfacing
             triage = {"decision": "ignore", "relevance_score": 0}
 
         relevance = triage.get("relevance_score", 0)
@@ -172,6 +174,31 @@ class NanoRouter:
             reasoning_hint=triage.get("reasoning_hint", "") or "",
             safe_context=safe_context,
         )
+
+    @staticmethod
+    def _parse_triage_json(raw: str) -> Optional[dict]:
+        """Extract Nano's triage JSON, tolerating fences and prose.
+
+        Handles: bare JSON, ```json fences, and trailing commentary.
+        Returns None when no parseable object is found.
+        """
+        if not raw or not raw.strip():
+            return None
+        text = raw.strip()
+        # Strip markdown fences if present
+        fence = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+        if fence:
+            text = fence.group(1)
+        else:
+            # Fall back to the first {...} block in the text
+            brace = re.search(r"\{.*\}", text, re.DOTALL)
+            if brace:
+                text = brace.group(0)
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            return None
+        return parsed if isinstance(parsed, dict) else None
 
     def build_ultra_prompt(
         self,

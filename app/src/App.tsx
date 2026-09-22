@@ -102,9 +102,9 @@ function StatusIndicator({ state, connected }: { state: SynapseState; connected:
   if (connected && state === 'IDLE') return null
 
   return (
-    <div className="status-indicator" data-state={state}>
+    <div className="status-indicator" data-state={connected ? state : 'OFFLINE'}>
       <span className="status-dot" />
-      <span>{state}</span>
+      <span>{connected ? state : 'OFFLINE — LOCAL MODE'}</span>
       {connected && <span className="pulse-ring" />}
     </div>
   )

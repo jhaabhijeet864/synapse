@@ -1,3 +1,4 @@
+
 import { SynapseCard as SynapseCardType } from '@/types'
 import { DiffViewer, extractPatch } from './DiffViewer'
 

@@ -21,6 +21,7 @@ import win32gui
 import win32ui
 import win32con
 import win32api
+import win32process
 from PIL import Image
 import ctypes
 
@@ -101,7 +102,7 @@ class WindowsOCR:
             return None
 
         window_title = win32gui.GetWindowText(hwnd)
-        _, pid = win32gui.GetWindowThreadProcessId(hwnd)
+        _, pid = win32process.GetWindowThreadProcessId(hwnd)
         app_name = self._get_process_name(pid)
 
         # Capture window bitmap

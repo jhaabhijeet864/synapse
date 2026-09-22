@@ -123,7 +123,7 @@ class ProcessWatcher:
             return
 
         window_title = win32gui.GetWindowText(hwnd)
-        _, pid = win32gui.GetWindowThreadProcessId(hwnd)
+        _, pid = win32process.GetWindowThreadProcessId(hwnd)
         app_name = self._get_app_name(pid)
 
         # Detect app switch

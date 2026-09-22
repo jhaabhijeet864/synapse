@@ -99,6 +99,17 @@ This architecture is **credit-efficient by design** — Nano handles ~70% of req
 └────────────────────────────────────────────────────────────────────────────┘
 ```
 
+```mermaid
+graph LR
+    A[Win32 Context Hook] --> B(Local PII Redaction)
+    B --> C{Nemotron Nano}
+    C -->|Low Priority| D[Local Cache]
+    C -->|High Priority| E[Nemotron 3 Ultra]
+    E --> F[PGVector Memory]
+    E --> G[Tavily Search]
+    E --> H[Tauri Ambient HUD]
+```
+
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and [`docs/CONTEXT_LAYER.md`](docs/CONTEXT_LAYER.md) for the full specification.
 
 ---
@@ -131,6 +142,16 @@ notepad .env
 NEBIUS_API_KEY=your_nebius_token_factory_api_key
 NEBIUS_PGVECTOR_URL=postgresql://user:pass@host:5432/synapse
 TAVILY_API_KEY=tvly-your_key
+```
+
+### Verify Environment
+
+```powershell
+# 1-second health check: keys, PGVector, Nebius reachability
+python -m core.doctor
+
+# Keys only, no network calls
+python -m core.doctor --env
 ```
 
 ### Launch
@@ -176,12 +197,16 @@ synapse/
 ## 🧪 Running Tests
 
 ```powershell
-# Offline tests — no API keys needed
-pytest tests\ -v
+# Full suite (canonical local command — see pytest.ini header for why)
+$env:PYTEST_DISABLE_PLUGIN_AUTOLOAD='1'
+python -m pytest tests -q -p asyncio -p no:cacheprovider
 
 # Live integration test (requires .env)
+# NOTE: import core.config first — it loads .env; importing the
+# client alone raises "NEBIUS_API_KEY not found".
 python -c "
 import asyncio
+import core.config
 from core.nebius.client import NebiusClient
 async def test():
     c = NebiusClient()

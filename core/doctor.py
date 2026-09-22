@@ -1,69 +1,129 @@
 # core/doctor.py
+"""Synapse environment diagnostics.
+
+Covers what the old root-level test_db.py did (pgvector extension, tables,
+row counts, embedding-dim check) plus API-key presence and Nebius
+reachability — using project conventions (core.config for .env,
+asyncpg for Postgres, Nebius OpenAI-compatible base URL).
+
+Usage:
+    python -m core.doctor          # full check (hits live PGVector)
+    python -m core.doctor --env    # keys only, no network calls
+
+Exit code 0 = all pass, 1 = something failed.
+"""
+
+import argparse
+import asyncio
 import os
 import sys
-import time
-from dotenv import load_dotenv
-from openai import OpenAI
-import psycopg2
-
-load_dotenv()
 
 GREEN = "\033[92m"
 RED = "\033[91m"
 RESET = "\033[0m"
 
 
-def check_env(var_name):
-    val = os.getenv(var_name)
-    if val:
-        print(f"[{GREEN}PASS{RESET}] Env var {var_name} detected")
+def ok(msg: str) -> None:
+    print(f"[{GREEN}PASS{RESET}] {msg}")
+
+
+def fail(msg: str) -> None:
+    print(f"[{RED}FAIL{RESET}] {msg}")
+
+
+def check_env(var_name: str) -> bool:
+    if os.getenv(var_name):
+        ok(f"Env var {var_name} detected")
         return True
-    print(f"[{RED}FAIL{RESET}] Env var {var_name} is missing")
+    fail(f"Env var {var_name} is missing")
     return False
 
 
-def check_nebius():
+async def check_pgvector() -> bool:
+    """Extension + tables + row counts + embedding-dim check (ex-test_db.py)."""
+    from core.nebius.memory import PGVectorMemory
+
+    dsn = os.getenv("NEBIUS_PGVECTOR_URL")
+    if not dsn:
+        fail("NEBIUS_PGVECTOR_URL missing, skipping DB checks")
+        return False
     try:
-        client = OpenAI(
-            base_url="https://api.tokenfactory.nebius.com/v1/",
-            api_key=os.getenv("NEBIUS_API_KEY")
-        )
-        t0 = time.time()
-        # Verify endpoint responsiveness
-        models = client.models.list()
-        ms = int((time.time() - t0) * 1000)
-        print(f"[{GREEN}PASS{RESET}] Nebius Token Factory connection OK ({ms}ms)")
+        import asyncpg
+
+        pool = await asyncpg.create_pool(dsn, min_size=1, max_size=1)
+        async with pool.acquire() as conn:
+            ext = await conn.fetchval(
+                "SELECT extversion FROM pg_extension WHERE extname = 'vector';"
+            )
+            if not ext:
+                fail("pgvector extension not installed in database")
+                await pool.close()
+                return False
+            ok(f"PostgreSQL connected with pgvector v{ext}")
+
+            mem_count = await conn.fetchval("SELECT COUNT(*) FROM episodic_memories;")
+            ok(f"Episodic memories: {mem_count}")
+            prof_count = await conn.fetchval("SELECT COUNT(*) FROM user_profiles;")
+            ok(f"User profiles: {prof_count}")
+
+            dim = await conn.fetchval(
+                """
+                SELECT atttypmod FROM pg_attribute
+                JOIN pg_class ON pg_class.oid = pg_attribute.attrelid
+                WHERE pg_class.relname = 'episodic_memories'
+                  AND pg_attribute.attname = 'context_vector';
+                """
+            )
+            print(f"       context_vector dim: {dim}")
+            if dim != PGVectorMemory.EMBEDDING_DIM:
+                fail(
+                    f"Expected dim {PGVectorMemory.EMBEDDING_DIM}. "
+                    "Run memory.bootstrap() to migrate."
+                )
+                await pool.close()
+                return False
+            ok(f"Vector dim matches embedding model ({dim})")
+        await pool.close()
         return True
     except Exception as e:
-        print(f"[{RED}FAIL{RESET}] Nebius API error: {e}")
+        fail(f"PostgreSQL error: {e}")
         return False
 
 
-def check_postgres_pgvector():
+def check_nebius() -> bool:
+    """Nebius endpoint reachability via models list (no inference spend)."""
     try:
-        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
-        cur = conn.cursor()
-        cur.execute("SELECT extversion FROM pg_extension WHERE extname = 'vector';")
-        version = cur.fetchone()
-        if version:
-            print(f"[{GREEN}PASS{RESET}] PostgreSQL connected with pgvector v{version[0]}")
-            return True
-        print(f"[{RED}FAIL{RESET}] pgvector extension not installed in database")
-        return False
+        from openai import OpenAI
+
+        from core.nebius.client import NEBIUS_BASE_URL
+
+        client = OpenAI(base_url=NEBIUS_BASE_URL, api_key=os.getenv("NEBIUS_API_KEY"))
+        models = client.models.list()
+        ids = [m.id for m in models.data[:5]]
+        ok(f"Nebius reachable at {NEBIUS_BASE_URL} (e.g. {', '.join(ids)})")
+        return True
     except Exception as e:
-        print(f"[{RED}FAIL{RESET}] PostgreSQL connection error: {e}")
+        fail(f"Nebius API error: {e}")
         return False
 
 
-def run_diagnostics():
-    print(f"\n--- SYNAPSE HEALTH CHECK ---")
+def main() -> None:
+    from core.config import settings  # noqa: F401 — loads .env
+
+    parser = argparse.ArgumentParser(description="Synapse environment diagnostics")
+    parser.add_argument("--env", action="store_true", help="keys only, no network calls")
+    args = parser.parse_args()
+
+    print("\n--- SYNAPSE HEALTH CHECK ---")
     results = [
         check_env("NEBIUS_API_KEY"),
-        check_env("DATABASE_URL"),
+        check_env("NEBIUS_PGVECTOR_URL"),
         check_env("TAVILY_API_KEY"),
-        check_postgres_pgvector(),
-        check_nebius()
     ]
+    if not args.env:
+        results.append(asyncio.run(check_pgvector()))
+        results.append(check_nebius())
+
     if all(results):
         print(f"\n{GREEN}All systems operational. Ready to run Synapse.{RESET}\n")
     else:
@@ -72,4 +132,4 @@ def run_diagnostics():
 
 
 if __name__ == "__main__":
-    run_diagnostics()
+    main()
