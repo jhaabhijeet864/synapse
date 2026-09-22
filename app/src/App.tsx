@@ -3,6 +3,7 @@ import { NeuronSphere } from '@/components/landing/NeuronSphere'
 import { HeroText } from '@/components/landing/HeroText'
 import { FeatureCards } from '@/components/landing/FeatureCards'
 import { SynapseCard } from '@/components/hud/SynapseCard'
+import { DiffViewer } from '@/components/hud/DiffViewer'
 import { useDaemonSocket, SynapseState, SynapseCard as SynapseCardType } from '@/hooks/useDaemonSocket'
 
 function App() {
@@ -11,7 +12,7 @@ function App() {
   const [daemonState, setDaemonState] = useState<SynapseState>('IDLE')
   const [query, setQuery] = useState('')
 
-  const { status, invoke, dismiss, applyFix, storeMemory } = useDaemonSocket({
+  const { status, streaming, invoke, dismiss, applyFix, storeMemory } = useDaemonSocket({
     onCard: (card) => {
       setActiveCard(card)
     },
@@ -64,6 +65,19 @@ function App() {
           Ask
         </button>
       </div>
+      {!activeCard && streaming && (
+        <div className="synapse-card loading" role="dialog" aria-live="polite">
+          <header className="synapse-card__header">
+            <div className="synapse-card__brand">
+              <span className="synapse-logo">▌</span>
+              <span>SYNAPSE</span>
+            </div>
+          </header>
+          <div className="synapse-card__response">
+            <DiffViewer text={streaming} />
+          </div>
+        </div>
+      )}
       <StatusIndicator state={daemonState} connected={status === 'connected'} />
     </div>
   )

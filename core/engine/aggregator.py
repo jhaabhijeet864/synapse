@@ -14,6 +14,7 @@ Architecture role: CORE — the brain stem of the system.
 """
 
 import asyncio
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum, auto
@@ -23,6 +24,10 @@ from core.capture.clipboard import ClipboardEvent, ClipboardContentType
 from core.capture.ocr import OCRSnapshot
 from core.capture.process_watcher import FocusState
 from core.capture.filesystem import ProjectContext
+
+from core.logging_config import setup_logging
+
+logger = setup_logging()
 
 
 class TriggerSource(Enum):
@@ -157,6 +162,10 @@ class ContextAggregator:
 
     def update_project(self, project: ProjectContext) -> None:
         self._project = project
+
+    def get_project_root(self) -> str:
+        """Active project root for scoped file operations ('' when unknown)."""
+        return self._project.root_path if self._project else ""
 
     # ──────────────────────────────────────────────────────────────────
     # Fast-lane triggers

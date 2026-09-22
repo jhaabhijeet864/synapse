@@ -17,14 +17,14 @@
 ## Backlog (remaining work)
 
 ### Week 1 — Foundation (Sep 22–28)
-- [ ] Verify Nebius $25 promo `NEBIUS-DEVPOST-GLOBAL26` credit landed (Nebius console → billing)
-- [ ] Verify Builder Program +$25 (and Tavily credits) landed
-- [ ] Live-provision check: Nemotron Nano + Ultra Serverless Endpoints reachable from `core/nebius/client.py`
-- [ ] Live-provision check: PGVector instance reachable; run `memory.connect()` + `memory.bootstrap()` against real `NEBIUS_PGVECTOR_URL`
-- [ ] Live Nano inference smoke test (1 call, log latency + tokens, confirm budget tracker updates)
+- [ ] Verify Nebius $25 promo `NEBIUS-DEVPOST-GLOBAL26` credit landed (Nebius console → billing) — *user-side console check still open*
+- [ ] Verify Builder Program +$25 (and Tavily credits) landed — *user-side console check still open*
+- [x] Live-provision check: Nemotron Nano + Ultra Serverless Endpoints reachable from `core/nebius/client.py` (verified 2026-09-22, see Done → Live verification)
+- [x] Live-provision check: PGVector instance reachable; `memory.connect()` + `memory.bootstrap()` + store/search round-trip OK (similarity 0.9034)
+- [x] Live Nano inference smoke test (1 call: `pong`, 1691ms, 108 tokens, budget tracker updated)
 - [ ] Benchmark PaddleOCR fallback accuracy on 3 samples (VS Code error, browser text, terminal) — record ms + accuracy
 - [ ] Finish WinRT `_winrt_ocr` SoftwareBitmap conversion (currently placeholder in `core/capture/ocr.py:171-187`)
-- [ ] `tavily-cli auth set` + `tavily-cli search "test" --json` live verify
+- [x] `tavily-cli auth set` + live search verify (token valid; `search query "NVIDIA Nemotron"` returned 10 scored results)
 - [ ] Commit + push all current work (see Done → "Uncommitted" list); confirm `git status` clean
 
 ### Week 2 — Core Loop (Sep 29–Oct 5)
@@ -63,9 +63,9 @@
 
 ## In Progress (code-complete, live verification pending)
 
-- [~] Nebius endpoints + PGVector instance — code done (`core/nebius/client.py`, `core/nebius/memory.py`), `.env` keys present; live reachability unverified
-- [~] Nano → Ultra routing — code done (`core/nebius/router.py`, `tests/test_nebius_routing.py` sync pass); live inference unverified
-- [~] Tavily pipeline — code done (`core/tools/tavily_search.py` search + compile + auto-save); live API call + file save unverified
+- [x] Nebius endpoints + PGVector instance — LIVE VERIFIED 2026-09-22 (see Done → Live verification)
+- [x] Nano → Ultra routing — LIVE VERIFIED 2026-09-22 (Nano `pong` + Ultra NameError answer, spend tracked)
+- [x] Tavily pipeline — LIVE VERIFIED 2026-09-22 (Python: 5 results + MD saved to `~/synapse_notes/`; CLI: token valid + 10-result search)
 - [~] IPC bridge daemon↔UI — code done (`core/server.py` `/ws` `/invoke` `/action/*` + `app/src/hooks/useDaemonSocket.ts` fixed); joint live run unverified
 - [~] Overlay card actions — Dismiss/Apply wired (`SynapseCard.tsx` + `server.py:198-230`); live behavior unverified
 - [~] OCR engine — polling + diff + PaddleOCR fallback done (`core/capture/ocr.py`, `tests/test_ocr.py`); WinRT fast path is placeholder (see Blocked)
@@ -114,6 +114,14 @@
 - [x] `.env` keys present: `NEBIUS_API_KEY`, `NEBIUS_PGVECTOR_URL`, `TAVILY_API_KEY`
 - [x] Initial commit `d8b610f` on `main` with `origin/main` remote
 
+### Live verification (2026-09-22, Lane 1)
+- [x] Nano smoke: `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B` → `pong`, 1691ms, 108 tokens, `nano_calls=1`, spend $0.0
+- [x] Ultra smoke: `nvidia/Nemotron-3-Ultra-550b-a55b` → correct 1-sentence NameError answer, 3012ms, 107 tokens, spend $0.0002, remaining $49.9998
+- [x] PGVector: `connect` + `bootstrap` OK; store-1/search-1 round-trip hit at similarity 0.9034. Note: `[Memory] HNSW index skipped (column cannot have more than 2000 dimensions)` — exact search used, fine at hackathon scale
+- [x] Tavily Python: 5 results + compiled MD saved to `~/synapse_notes/20260922_2029_python-nameerror-common-causes.md` (4584ms)
+- [x] Tavily CLI: `auth set` (from `.env` key, never printed) → `auth test` "Token is valid"; `search query "NVIDIA Nemotron"` → 10 scored results (top 0.9403)
+- [x] Gotcha recorded: smoke scripts MUST `import core.config` first — importing `core.nebius.client` alone never loads `.env` (`ValueError: NEBIUS_API_KEY not found` otherwise)
+
 ### Uncommitted (commit + push pending — from `git status`)
 - Modified: `.env.example`, `app/src/hooks/useDaemonSocket.ts`, `app/src/styles/theme.css`, `core/capture/ocr.py`, `core/config.py`, `core/engine/redaction.py`, `core/nebius/client.py`, `core/nebius/memory.py`, `core/requirements.txt`, `docs/MEMORY_SPEC.md`
 - Untracked: `app/index.html`, `app/package.json`, `app/package-lock.json`, `app/src-tauri/`, `app/src/App.tsx`, `app/src/components/`, `app/src/main.tsx`, `app/src/vite-env.d.ts`, `app/tsconfig*.json`, `app/vite.config.ts`, `core/doctor.py`, `test_db.py`, `tests/test_redaction.py`
@@ -124,7 +132,7 @@
 
 - **pytest default run crashes before collection** — `deepeval` plugin + `pydantic-settings` conflict (`SettingsError: TEMPERATURE`). Workaround (verified): `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest tests -q -p no:cacheprovider` → 13 passed, 7 async skipped. Unblock: add `pytest-asyncio` explicit config (`asyncio_mode = "auto"` in `pytest.ini`/`pyproject`) or run with `-p asyncio`, then re-run full suite.
 - **WinRT OCR fast path is a stub** — `core/capture/ocr.py:_winrt_ocr` returns `""` (SoftwareBitmap conversion TODO). PaddleOCR fallback carries OCR until this is implemented. Unblock: implement WinRT imaging bridge or lock PaddleOCR as primary and note latency in README.
-- **Nebius live calls unverified** — endpoints, credits, PGVector reachability unknown from repo alone. Unblock: Nebius console check + 1 live Nano call + `memory.bootstrap()` run.
-- **Tavily CLI auth unverified** — earlier `auth test` → "No token configured". `.env` key now present per user; CLI-side `auth set` + live search still to confirm.
+- **Nebius billing console unchecked** — endpoints + PGVector verified live (2026-09-22), but promo/Builder credit balances still need a user-side Nebius console → billing check before load testing.
+- **Nano latency 1691ms vs 300ms triage target** — live Nano call works but misses the `<300ms` PRD target; Ultra 3012ms vs `<4s` target is inside. Unblock: profile (cold start vs steady state), consider shorter `max_tokens` / streaming for triage path.
 - **Tauri global shortcut unwired** — `tauri-plugin-global-shortcut` in `Cargo.toml` but no `Ctrl+Shift+Space` registration in `src/main.rs`. Manual `/invoke` works; shortcut pending.
 - **Joint daemon+UI run unverified** — both sides build independently; no live WS session recorded yet.
