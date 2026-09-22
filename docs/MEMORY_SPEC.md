@@ -5,7 +5,7 @@
 ## 1. Storage Infrastructure
 
 - **Engine:** PostgreSQL 16 with `pgvector` extension hosted on Nebius Token Factory
-- **Embedding Model:** `BAAI/bge-en-icl` via Nebius Embeddings API (output dimension: 1536)
+- **Embedding Model:** `Qwen/Qwen3-Embedding-8B` via Nebius Embeddings API (output dimension: 4096)
 - **Scope:** Long-term personal developer model. Stores user habits, recurring architectural patterns, library preferences, and past bug resolution workflows — not raw desktop history.
 
 ---
@@ -32,13 +32,12 @@ CREATE TABLE episodic_memories (
     problem_signature TEXT NOT NULL,            -- Scraped error or context trace
     resolution_summary TEXT NOT NULL,           -- Generated fix that was accepted
     file_extensions VARCHAR(32)[] NOT NULL,
-    context_vector vector(1536) NOT NULL        -- Embedding of problem + resolution
+    context_vector vector(4096) NOT NULL        -- Embedding of problem + resolution
 );
 
--- Index for fast cosine similarity search
+-- Index for fast cosine similarity search (HNSW: ivfflat caps at 2000 dims)
 CREATE INDEX episodic_memory_idx ON episodic_memories
-USING ivfflat (context_vector vector_cosine_ops)
-WITH (lists = 100);
+USING hnsw (context_vector vector_cosine_ops);
 ```
 
 ---

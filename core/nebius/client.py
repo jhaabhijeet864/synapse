@@ -22,13 +22,33 @@ from openai import AsyncOpenAI  # Nebius uses OpenAI-compatible API
 
 
 # ── Nebius endpoint configuration ─────────────────────────────────────
+# Base URL overridable via NEBIUS_BASE_URL (AI Studio default; Token Factory
+# regional endpoints like https://api.tokenfactory.us-central1.nebius.com/v1/
+# can be set in .env when Ultra is served there).
 
-NEBIUS_BASE_URL = "https://api.studio.nebius.ai/v1"
+NEBIUS_BASE_URL = os.environ.get(
+    "NEBIUS_BASE_URL", "https://api.studio.nebius.ai/v1"
+)
 
+# Verified against Nebius Token Factory catalog (Sep 2026):
+#   Nano  = nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B  (30B MoE, 262K ctx,
+#           $0.06 in / $0.24 out per 1M tokens) — fast triage
+#   Ultra = nvidia/Nemotron-3-Ultra-550b-a55b      (550B MoE, 256K ctx,
+#           $1.00 in / $3.00 out per 1M tokens) — deep reasoning
+#   Embed = Qwen/Qwen3-Embedding-8B (only embedding model on AI Studio,
+#           4096-dim output — verified live Sep 2026).
+# All three overridable via env for credit/availability fallbacks.
 MODELS = {
-    "nano":       "Qwen/Qwen3-8B",          # Fast triage (~150ms)
-    "ultra":      "nvidia/Llama-3.1-Nemotron-70B-Instruct",  # Deep reasoning
-    "embed":      "BAAI/bge-en-icl",         # Embedding model for PGVector
+    "nano":       os.environ.get("NEBIUS_NANO_MODEL", "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"),
+    "ultra":      os.environ.get("NEBIUS_ULTRA_MODEL", "nvidia/Nemotron-3-Ultra-550b-a55b"),
+    "embed":      os.environ.get("NEBIUS_EMBED_MODEL", "Qwen/Qwen3-Embedding-8B"),
+}
+
+# Per-1M-token prices (USD) matching the catalog above; embed priced ~$0.02/1M.
+PRICES_PER_MTOK = {
+    "nano":  (0.06, 0.24),
+    "ultra": (1.00, 3.00),
+    "embed": (0.02, 0.00),
 }
 
 
@@ -43,10 +63,9 @@ class UsageRecord:
 
     @property
     def estimated_cost_usd(self) -> float:
-        """Rough cost estimate. Update with actual Nebius pricing."""
-        rates = {"nano": 0.000002, "ultra": 0.000008, "embed": 0.0000001}
-        rate = rates.get(self.model, 0.000005)
-        return self.total_tokens * rate
+        """Catalog-based cost estimate (input + output rates per model)."""
+        in_rate, out_rate = PRICES_PER_MTOK.get(self.model, (0.10, 0.30))
+        return (self.prompt_tokens * in_rate + self.completion_tokens * out_rate) / 1_000_000
 
 
 class NebiusClient:
@@ -89,6 +108,9 @@ class NebiusClient:
         max_tokens: int = 512,
     ) -> str:
         """Fast triage inference using Nemotron Nano. Target: < 300ms."""
+        # Nemotron-3-Nano is a reasoning model: tiny budgets (e.g. 32) starve
+        # the thinking trace and return empty strings. Enforce a floor.
+        max_tokens = max(max_tokens, 256)
         return await self._complete(
             model_key="nano",
             messages=[
@@ -150,7 +172,8 @@ class NebiusClient:
             input=text[:8000],  # Truncate to safe token limit
         )
         elapsed_ms = (time.perf_counter() - t0) * 1000
-        self._log_usage("embed", 0, 0, len(text) // 4, elapsed_ms)
+        approx_tokens = max(1, len(text) // 4)
+        self._log_usage("embed", approx_tokens, 0, approx_tokens, elapsed_ms)
         return response.data[0].embedding
 
     # ──────────────────────────────────────────────────────────────────
@@ -192,13 +215,10 @@ class NebiusClient:
                 )
                 elapsed_ms = (time.perf_counter() - t0) * 1000
                 usage = response.usage
-                self._log_usage(
-                    model_key,
-                    usage.prompt_tokens,
-                    usage.completion_tokens,
-                    usage.total_tokens,
-                    elapsed_ms,
-                )
+                prompt_t = getattr(usage, "prompt_tokens", 0) or 0 if usage else 0
+                comp_t = getattr(usage, "completion_tokens", 0) or 0 if usage else 0
+                total_t = getattr(usage, "total_tokens", 0) or (prompt_t + comp_t) if usage else 0
+                self._log_usage(model_key, prompt_t, comp_t, total_t, elapsed_ms)
                 return response.choices[0].message.content or ""
             except Exception as e:
                 last_error = e

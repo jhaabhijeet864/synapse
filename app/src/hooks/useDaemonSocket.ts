@@ -22,6 +22,7 @@ export interface SynapseCard {
     nano_calls: number;
     ultra_calls: number;
     estimated_spend_usd: number;
+    budget_remaining_usd: number;
   };
 }
 
@@ -63,12 +64,20 @@ export interface UseDaemonSocketOptions {
   onConnectionChange?: (status: ConnectionStatus) => void;
 }
 
+export interface StoreMemoryPayload {
+  app_context: string;
+  problem: string;
+  resolution: string;
+  extensions?: string[];
+}
+
 export interface UseDaemonSocketReturn {
   status: ConnectionStatus;
   daemonState: SynapseState;
   invoke: (query: string, signal?: AbortSignal) => Promise<void>;
   dismiss: (signal?: AbortSignal) => Promise<void>;
   applyFix: (patch: string, signal?: AbortSignal) => Promise<void>;
+  storeMemory: (payload: StoreMemoryPayload, signal?: AbortSignal) => Promise<void>;
 }
 
 function isStateChangeMessage(msg: DaemonMessage): msg is StateChangeMessage {
@@ -241,5 +250,12 @@ export function useDaemonSocket(opts: UseDaemonSocketOptions = {}): UseDaemonSoc
     [httpRequest]
   );
 
-  return { status, daemonState, invoke, dismiss, applyFix };
+  const storeMemory = useCallback(
+    async (payload: StoreMemoryPayload, signal?: AbortSignal) => {
+      await httpRequest("/action/store-memory", payload, signal);
+    },
+    [httpRequest]
+  );
+
+  return { status, daemonState, invoke, dismiss, applyFix, storeMemory };
 }

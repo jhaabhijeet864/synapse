@@ -52,7 +52,9 @@ class PGVectorMemory:
     """
 
     SIMILARITY_THRESHOLD = 0.82
-    EMBEDDING_DIM = 1536           # Must match MODELS["embed"] output dim
+    # Qwen/Qwen3-Embedding-8B → 4096-dim output (verified live Sep 2026).
+    # Must match MODELS["embed"] output dim; bootstrap() migrates stale dims.
+    EMBEDDING_DIM = 4096
 
     DDL = """
     CREATE EXTENSION IF NOT EXISTS vector;
@@ -74,11 +76,14 @@ class PGVectorMemory:
         file_extensions VARCHAR(32)[] NOT NULL,
         context_vector vector({dim}) NOT NULL
     );
-
-    CREATE INDEX IF NOT EXISTS episodic_memory_idx
-    ON episodic_memories USING ivfflat (context_vector vector_cosine_ops)
-    WITH (lists = 100);
     """.format(dim=EMBEDDING_DIM)
+
+    # HNSW (not ivfflat): ivfflat caps at 2000 dims, HNSW supports 4096.
+    # Created separately so old servers without HNSW still get working tables.
+    INDEX_DDL = """
+    CREATE INDEX IF NOT EXISTS episodic_memory_idx
+    ON episodic_memories USING hnsw (context_vector vector_cosine_ops);
+    """
 
     def __init__(self, client=None):
         """
@@ -94,12 +99,59 @@ class PGVectorMemory:
         dsn = os.environ.get("NEBIUS_PGVECTOR_URL")
         if not dsn:
             raise ValueError("NEBIUS_PGVECTOR_URL not set in environment")
-        self._pool = await asyncpg.create_pool(dsn, min_size=1, max_size=5)
+
+        async def _init_conn(conn):
+            # Register pgvector codec so vector columns round-trip as lists.
+            # Non-fatal if the helper is unavailable (we use ::vector casts).
+            try:
+                from pgvector.asyncpg import register_vector
+                await register_vector(conn)
+            except Exception:
+                pass
+
+        self._pool = await asyncpg.create_pool(dsn, min_size=1, max_size=5, init=_init_conn)
 
     async def bootstrap(self) -> None:
-        """Create tables and indexes if they don't exist."""
+        """Create tables and indexes if they don't exist; migrate stale dims."""
         async with self._pool.acquire() as conn:
             await conn.execute(self.DDL)
+            try:
+                await conn.execute(self.INDEX_DDL)
+            except Exception as e:
+                # Old pgvector without HNSW: exact scan still works at personal scale.
+                print(f"[Memory] HNSW index skipped ({e}); using exact search")
+            # Migrate tables created with a wrong vector dim (e.g. legacy 1536).
+            try:
+                row = await conn.fetchrow(
+                    """
+                    SELECT atttypmod AS dim
+                    FROM pg_attribute
+                    JOIN pg_class ON pg_class.oid = pg_attribute.attrelid
+                    WHERE pg_class.relname = 'episodic_memories'
+                      AND pg_attribute.attname = 'context_vector'
+                    """
+                )
+                # pgvector stores vector(n) typmod as n directly (NOT n+4
+                # like varchar). Verified live: vector(1536) → atttypmod 1536.
+                existing = row["dim"] if row and row["dim"] and row["dim"] > 0 else None
+                if existing and existing != self.EMBEDDING_DIM:
+                    print(f"[Memory] Migrating context_vector dim {existing} -> {self.EMBEDDING_DIM} (dropping stale rows)")
+                    await conn.execute("DROP TABLE IF EXISTS episodic_memories")
+                    await conn.execute(self.DDL)
+                    try:
+                        await conn.execute(self.INDEX_DDL)
+                    except Exception as e:
+                        print(f"[Memory] HNSW index skipped ({e}); using exact search")
+            except Exception as e:
+                print(f"[Memory] Dim check skipped: {e}")
+
+    def _check_dim(self, vector: list) -> None:
+        """Fail fast if the embedding model changed output dim."""
+        if len(vector) != self.EMBEDDING_DIM:
+            raise ValueError(
+                f"Embedding dim mismatch: got {len(vector)}, "
+                f"expected {self.EMBEDDING_DIM}. Check NEBIUS_EMBED_MODEL."
+            )
 
     async def store(
         self,
@@ -112,6 +164,7 @@ class PGVectorMemory:
         # Build text to embed: problem + resolution for rich semantic retrieval
         embed_text = f"Problem: {problem_signature}\nResolution: {resolution_summary}"
         vector = await self._nebius.embed(embed_text)
+        self._check_dim(vector)
 
         entry_id = str(uuid.uuid4())
         async with self._pool.acquire() as conn:
@@ -120,14 +173,14 @@ class PGVectorMemory:
                 INSERT INTO episodic_memories
                     (id, application_context, problem_signature, resolution_summary,
                      file_extensions, context_vector)
-                VALUES ($1, $2, $3, $4, $5, $6)
+                VALUES ($1, $2, $3, $4, $5, $6::vector)
                 """,
                 entry_id,
                 application_context[:128],
                 problem_signature,
                 resolution_summary,
                 file_extensions,
-                str(vector),   # asyncpg-pgvector expects list or str
+                vector,   # list[float]; pgvector codec registered in connect()
             )
         return entry_id
 
@@ -137,6 +190,7 @@ class PGVectorMemory:
         with similarity >= SIMILARITY_THRESHOLD.
         """
         query_vector = await self._nebius.embed(query_text)
+        self._check_dim(query_vector)
 
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(
@@ -149,7 +203,7 @@ class PGVectorMemory:
                 ORDER BY similarity DESC
                 LIMIT $3
                 """,
-                str(query_vector),
+                query_vector,   # list[float]; pgvector codec registered in connect()
                 self.SIMILARITY_THRESHOLD,
                 top_k,
             )

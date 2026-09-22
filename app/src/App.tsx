@@ -1,0 +1,99 @@
+import { useState } from 'react'
+import { NeuronSphere } from '@/components/landing/NeuronSphere'
+import { HeroText } from '@/components/landing/HeroText'
+import { FeatureCards } from '@/components/landing/FeatureCards'
+import { SynapseCard } from '@/components/hud/SynapseCard'
+import { useDaemonSocket, SynapseState, SynapseCard as SynapseCardType } from '@/hooks/useDaemonSocket'
+
+function App() {
+  const [isLanding, setIsLanding] = useState(true)
+  const [activeCard, setActiveCard] = useState<SynapseCardType | null>(null)
+  const [daemonState, setDaemonState] = useState<SynapseState>('IDLE')
+  const [query, setQuery] = useState('')
+
+  const { status, invoke, dismiss, applyFix, storeMemory } = useDaemonSocket({
+    onCard: (card) => {
+      setActiveCard(card)
+    },
+    onStateChange: (state) => {
+      setDaemonState(state)
+    },
+  })
+
+  if (isLanding) {
+    return (
+      <LandingPage onEnterApp={() => setIsLanding(false)} />
+    )
+  }
+
+  const handleInvoke = () => {
+    if (query.trim()) invoke(query.trim())
+  }
+
+  return (
+    <div className="app">
+      {activeCard && (
+        <SynapseCard
+          card={activeCard}
+          state={daemonState}
+          onDismiss={() => {
+            dismiss()
+            setActiveCard(null)
+          }}
+          onApplyFix={(patch) => applyFix(patch)}
+          onSave={() => {
+            if (!activeCard) return
+            storeMemory({
+              app_context: activeCard.active_app || 'unknown',
+              problem: activeCard.trigger,
+              resolution: activeCard.response.slice(0, 2000),
+            })
+          }}
+        />
+      )}
+      <div className="invoke-bar">
+        <input
+          className="invoke-input"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && handleInvoke()}
+          placeholder={status === 'connected' ? 'Ask Synapse… (Ctrl+Shift+Space)' : 'Connecting to daemon…'}
+          disabled={status !== 'connected'}
+        />
+        <button className="btn-primary btn-sm" onClick={handleInvoke} disabled={status !== 'connected'}>
+          Ask
+        </button>
+      </div>
+      <StatusIndicator state={daemonState} connected={status === 'connected'} />
+    </div>
+  )
+}
+
+function LandingPage({ onEnterApp }: { onEnterApp: () => void }) {
+  return (
+    <div className="landing-page">
+      <div className="landing-content">
+        <NeuronSphere />
+        <HeroText />
+        <button className="cta-button" onClick={onEnterApp}>
+          Launch Synapse
+        </button>
+        <FeatureCards />
+      </div>
+    </div>
+  )
+}
+
+function StatusIndicator({ state, connected }: { state: SynapseState; connected: boolean }) {
+  if (connected && state === 'IDLE') return null
+
+  return (
+    <div className="status-indicator" data-state={state}>
+      <span className="status-dot" />
+      <span>{state}</span>
+      {connected && <span className="pulse-ring" />}
+    </div>
+  )
+}
+
+export default App
