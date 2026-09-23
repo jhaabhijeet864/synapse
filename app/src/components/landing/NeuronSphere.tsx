@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState } from 'react'
+import { useRef, useEffect } from 'react'
 import * as THREE from 'three'
 
 interface NeuronSphereProps {
@@ -7,16 +7,24 @@ interface NeuronSphereProps {
 
 export function NeuronSphere({ className }: NeuronSphereProps) {
   const mountRef = useRef<HTMLDivElement>(null)
-  const [hovered, setHovered] = useState(false)
-
+  
   useEffect(() => {
     const container = mountRef.current
     if (!container) return
 
+    // Mutable state for interactivity without triggering re-renders
+    const state = {
+      isHovered: false,
+      mouseX: 0,
+      mouseY: 0
+    }
+
     // Scene setup
     const scene = new THREE.Scene()
-    const width = container.clientWidth || 560
-    const height = container.clientHeight || 560
+    
+    // Initial size
+    let width = container.clientWidth || 560
+    let height = container.clientHeight || 560
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
     renderer.setSize(width, height)
@@ -112,18 +120,6 @@ export function NeuronSphere({ className }: NeuronSphereProps) {
     let lastPulseTime = 0
     let nextPulseInterval = 2000 + Math.random() * 2000
 
-    // Mouse interaction
-    let mouseX = 0
-    let mouseY = 0
-
-    const onMouseMove = (e: MouseEvent) => {
-      const rect = container.getBoundingClientRect()
-      mouseX = ((e.clientX - rect.left) / rect.width) * 2 - 1
-      mouseY = -((e.clientY - rect.top) / rect.height) * 2 + 1
-    }
-
-    container.addEventListener('mousemove', onMouseMove)
-
     const triggerPulse = () => {
       const posAttr = geometry.attributes.position
       const nodeA = Math.floor(Math.random() * PARTICLE_COUNT)
@@ -144,7 +140,7 @@ export function NeuronSphere({ className }: NeuronSphereProps) {
       pulseProgress = 0
       tracer.visible = true
       lastPulseTime = performance.now()
-      nextPulseInterval = hovered ? 800 + Math.random() * 700 : 2000 + Math.random() * 2000
+      nextPulseInterval = state.isHovered ? 800 + Math.random() * 700 : 2000 + Math.random() * 2000
     }
 
     // Animation loop
@@ -158,8 +154,8 @@ export function NeuronSphere({ className }: NeuronSphereProps) {
       particles.rotation.y += 0.001
 
       // Parallax tilt from mouse
-      wireframe.rotation.x += (mouseY * 0.15 - wireframe.rotation.x) * 0.05
-      wireframe.rotation.z += (-mouseX * 0.15 - wireframe.rotation.z) * 0.05
+      wireframe.rotation.x += (state.mouseY * 0.15 - wireframe.rotation.x) * 0.05
+      wireframe.rotation.z += (-state.mouseX * 0.15 - wireframe.rotation.z) * 0.05
       particles.rotation.x = wireframe.rotation.x
       particles.rotation.z = wireframe.rotation.z
 
@@ -246,25 +242,58 @@ export function NeuronSphere({ className }: NeuronSphereProps) {
       requestAnimationFrame(fadeAnimation)
     }
 
-    // Click handler for cascade pulse
+    // Interaction Handlers
+    const onMouseMove = (e: MouseEvent) => {
+      const rect = container.getBoundingClientRect()
+      state.mouseX = ((e.clientX - rect.left) / rect.width) * 2 - 1
+      state.mouseY = -((e.clientY - rect.top) / rect.height) * 2 + 1
+    }
     const onClick = () => {
       for (let i = 0; i < 5; i++) {
         setTimeout(() => triggerPulse(), i * 150)
       }
     }
+    const onMouseEnter = () => { state.isHovered = true }
+    const onMouseLeave = () => { state.isHovered = false }
+
+    container.addEventListener('mousemove', onMouseMove)
     container.addEventListener('click', onClick)
+    container.addEventListener('mouseenter', onMouseEnter)
+    container.addEventListener('mouseleave', onMouseLeave)
 
-    // Hover state
-    container.addEventListener('mouseenter', () => setHovered(true))
-    container.addEventListener('mouseleave', () => setHovered(false))
+    // Resize Handling
+    const handleResize = () => {
+      if (!container) return
+      width = container.clientWidth
+      height = container.clientHeight
+      
+      // Prevent division by zero
+      if (width === 0 || height === 0) return
 
+      camera.aspect = width / height
+      camera.updateProjectionMatrix()
+      renderer.setSize(width, height)
+    }
+
+    const resizeObserver = new ResizeObserver(handleResize)
+    resizeObserver.observe(container)
+
+    // Start loop
     animate(0)
 
     // Cleanup
     return () => {
       cancelAnimationFrame(animationId)
+      resizeObserver.disconnect()
       container.removeEventListener('mousemove', onMouseMove)
       container.removeEventListener('click', onClick)
+      container.removeEventListener('mouseenter', onMouseEnter)
+      container.removeEventListener('mouseleave', onMouseLeave)
+      
+      if (container.contains(renderer.domElement)) {
+        container.removeChild(renderer.domElement)
+      }
+      
       renderer.dispose()
       geometry.dispose()
       particleMaterial.dispose()
@@ -273,13 +302,19 @@ export function NeuronSphere({ className }: NeuronSphereProps) {
       tracerGeometry.dispose()
       tracerMaterial.dispose()
     }
-  }, [hovered])
+  }, []) // Empty deps list! We rely on mutable state for interaction
 
   return (
     <div
       ref={mountRef}
       className={`neuron-sphere ${className || ''}`}
-      style={{ width: '560px', height: '560px', maxWidth: '100%', maxHeight: '100%' }}
+      style={{
+        width: '100%',
+        height: '100%',
+        position: 'absolute',
+        top: 0,
+        left: 0,
+      }}
     />
   )
 }

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { NeuronSphere } from '@/components/landing/NeuronSphere'
+import { StarfieldBackground } from '@/components/landing/StarfieldBackground'
 import { HeroText } from '@/components/landing/HeroText'
 import { FeatureCards } from '@/components/landing/FeatureCards'
 import { SynapseCard } from '@/components/hud/SynapseCard'
@@ -86,12 +87,19 @@ function App() {
 function LandingPage({ onEnterApp }: { onEnterApp: () => void }) {
   return (
     <div className="landing-page">
+      <StarfieldBackground />
       <div className="landing-content">
-        <NeuronSphere />
-        <HeroText />
-        <button className="cta-button" onClick={onEnterApp}>
-          Launch Synapse
-        </button>
+        <div className="hero-container">
+          <div className="hero-left">
+            <HeroText />
+            <button className="cta-button" onClick={onEnterApp}>
+              Launch Synapse
+            </button>
+          </div>
+          <div className="hero-right" style={{ position: 'relative', width: '100%', minHeight: '500px' }}>
+            <NeuronSphere />
+          </div>
+        </div>
         <FeatureCards />
       </div>
     </div>
